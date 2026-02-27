@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faultline-controller
+  namespace: faultline
+  labels:
+    app: faultline-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: faultline-controller
+  template:
+    metadata:
+      labels:
+        app: faultline-controller
+    spec:
+      serviceAccountName: faultline-controller
+      containers:
+      - name: controller
+        image: faultline-controller:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true

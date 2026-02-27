@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: faultline-manager-role
+  namespace: faultline
+rules:
+- apiGroups: [""]
+  resources: [configmaps, services]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [apps]
+  resources: [deployments]
+  verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: faultline-manager-binding
+  namespace: faultline
+subjects:
+- kind: ServiceAccount
+  name: faultline-controller
+  namespace: faultline
+roleRef:
+  kind: Role
+  name: faultline-manager-role
+  apiGroup: rbac.authorization.k8s.io
