@@ -16,6 +16,14 @@ import (
 
 const Namespace = "faultline"
 
+// SimulatorInfo is returned by ListSimulators and carries the raw rules YAML
+// alongside the simulator name so callers can parse mutation rules without an
+// extra round-trip.
+type SimulatorInfo struct {
+	Name      string
+	RulesYAML string
+}
+
 // Client wraps a Kubernetes clientset scoped to a single namespace.
 type Client struct {
 	cs        kubernetes.Interface
@@ -166,21 +174,29 @@ func (c *Client) createService(ctx context.Context, name string) error {
 	return nil
 }
 
-// ListSimulators returns the instance names of all running simulators.
-func (c *Client) ListSimulators(ctx context.Context) ([]string, error) {
+// ListSimulators returns info about all running simulators, including their
+// raw rules YAML fetched from the associated ConfigMap.
+func (c *Client) ListSimulators(ctx context.Context) ([]SimulatorInfo, error) {
 	list, err := c.cs.AppsV1().Deployments(c.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=faultline-worker",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
-	names := make([]string, 0, len(list.Items))
+	infos := make([]SimulatorInfo, 0, len(list.Items))
 	for _, dep := range list.Items {
-		if inst, ok := dep.Labels["instance"]; ok {
-			names = append(names, inst)
+		inst, ok := dep.Labels["instance"]
+		if !ok {
+			continue
 		}
+		rulesYAML := ""
+		cm, err := c.cs.CoreV1().ConfigMaps(c.namespace).Get(ctx, inst+"-config", metav1.GetOptions{})
+		if err == nil {
+			rulesYAML = cm.Data["rules.yaml"]
+		}
+		infos = append(infos, SimulatorInfo{Name: inst, RulesYAML: rulesYAML})
 	}
-	return names, nil
+	return infos, nil
 }
 
 // DeleteSimulator removes the ConfigMap, Deployment, and Service for a simulator.

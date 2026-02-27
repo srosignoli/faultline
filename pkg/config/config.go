@@ -36,6 +36,15 @@ type MutatorConfig struct {
 	Params map[string]interface{} `yaml:"params"`
 }
 
+// ParseConfig parses raw YAML bytes into a Config.
+func ParseConfig(data []byte) (*Config, error) {
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	return &cfg, nil
+}
+
 // LoadConfig reads and parses a YAML config file at path.
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)

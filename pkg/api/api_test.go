@@ -11,12 +11,13 @@ import (
 	"testing"
 
 	"github.com/srosignoli/faultline/pkg/api"
+	"github.com/srosignoli/faultline/pkg/k8s"
 )
 
 // mockClient is a configurable test double for api.SimulatorClient.
 type mockClient struct {
 	createFn func(ctx context.Context, name, dump, rules string) error
-	listFn   func(ctx context.Context) ([]string, error)
+	listFn   func(ctx context.Context) ([]k8s.SimulatorInfo, error)
 	deleteFn func(ctx context.Context, name string) error
 }
 
@@ -24,7 +25,7 @@ func (m *mockClient) CreateSimulator(ctx context.Context, name, dump, rules stri
 	return m.createFn(ctx, name, dump, rules)
 }
 
-func (m *mockClient) ListSimulators(ctx context.Context) ([]string, error) {
+func (m *mockClient) ListSimulators(ctx context.Context) ([]k8s.SimulatorInfo, error) {
 	return m.listFn(ctx)
 }
 
@@ -71,6 +72,15 @@ func decodeErrorBody(t *testing.T, rr *httptest.ResponseRecorder) string {
 	return resp.Error
 }
 
+func decodeSimulators(t *testing.T, rr *httptest.ResponseRecorder) []api.Simulator {
+	t.Helper()
+	var sims []api.Simulator
+	if err := json.NewDecoder(rr.Body).Decode(&sims); err != nil {
+		t.Fatalf("decode simulators: %v (raw: %s)", err, rr.Body.String())
+	}
+	return sims
+}
+
 // --- TestListSimulators ---
 
 func TestListSimulators(t *testing.T) {
@@ -78,20 +88,23 @@ func TestListSimulators(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		listResult []string
+		listResult []k8s.SimulatorInfo
 		listErr    error
 		wantStatus int
 		wantNames  []string
 	}{
 		{
 			name:       "empty",
-			listResult: []string{},
+			listResult: []k8s.SimulatorInfo{},
 			wantStatus: http.StatusOK,
 			wantNames:  []string{},
 		},
 		{
-			name:       "two simulators",
-			listResult: []string{"alpha", "beta"},
+			name: "two simulators",
+			listResult: []k8s.SimulatorInfo{
+				{Name: "alpha", RulesYAML: ""},
+				{Name: "beta", RulesYAML: ""},
+			},
 			wantStatus: http.StatusOK,
 			wantNames:  []string{"alpha", "beta"},
 		},
@@ -100,6 +113,33 @@ func TestListSimulators(t *testing.T) {
 			listErr:    errors.New("cluster unavailable"),
 			wantStatus: http.StatusInternalServerError,
 		},
+		{
+			name: "rules attached",
+			listResult: []k8s.SimulatorInfo{
+				{
+					Name: "sim1",
+					RulesYAML: `rules:
+  - name: jitter-rule
+    match:
+      metric_name: http_requests_total
+    mutator:
+      type: jitter
+      params:
+        variance: 0.1
+`,
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantNames:  []string{"sim1"},
+		},
+		{
+			name: "invalid rules yaml returns empty active_rules",
+			listResult: []k8s.SimulatorInfo{
+				{Name: "bad-sim", RulesYAML: "!!invalid"},
+			},
+			wantStatus: http.StatusOK,
+			wantNames:  []string{"bad-sim"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -107,7 +147,7 @@ func TestListSimulators(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mc := &mockClient{
-				listFn: func(_ context.Context) ([]string, error) {
+				listFn: func(_ context.Context) ([]k8s.SimulatorInfo, error) {
 					return tc.listResult, tc.listErr
 				},
 			}
@@ -120,21 +160,52 @@ func TestListSimulators(t *testing.T) {
 				return
 			}
 
-			var got []string
-			if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
-				t.Fatalf("decode body: %v", err)
-			}
+			got := decodeSimulators(t, rr)
 			if got == nil {
-				got = []string{}
+				got = []api.Simulator{}
 			}
-			sort.Strings(got)
+			sort.Slice(got, func(i, j int) bool { return got[i].Name < got[j].Name })
 			sort.Strings(tc.wantNames)
+
 			if len(got) != len(tc.wantNames) {
 				t.Fatalf("names: got %v, want %v", got, tc.wantNames)
 			}
 			for i := range got {
-				if got[i] != tc.wantNames[i] {
-					t.Errorf("names[%d]: got %s, want %s", i, got[i], tc.wantNames[i])
+				if got[i].Name != tc.wantNames[i] {
+					t.Errorf("names[%d]: got %s, want %s", i, got[i].Name, tc.wantNames[i])
+				}
+			}
+
+			// Subtest-specific assertions.
+			switch tc.name {
+			case "rules attached":
+				if len(got) != 1 {
+					t.Fatalf("expected 1 simulator, got %d", len(got))
+				}
+				rules := got[0].ActiveRules
+				if len(rules) != 1 {
+					t.Fatalf("expected 1 active rule, got %d", len(rules))
+				}
+				r := rules[0]
+				if r.Name != "jitter-rule" {
+					t.Errorf("rule name: got %q, want %q", r.Name, "jitter-rule")
+				}
+				if r.Match.MetricName != "http_requests_total" {
+					t.Errorf("metric name: got %q, want %q", r.Match.MetricName, "http_requests_total")
+				}
+				if r.Mutator.Type != "jitter" {
+					t.Errorf("mutator type: got %q, want %q", r.Mutator.Type, "jitter")
+				}
+				if r.Mutator.Params["variance"] == nil {
+					t.Error("expected variance param to be set")
+				}
+
+			case "invalid rules yaml returns empty active_rules":
+				if len(got) != 1 {
+					t.Fatalf("expected 1 simulator, got %d", len(got))
+				}
+				if len(got[0].ActiveRules) != 0 {
+					t.Errorf("expected empty active_rules, got %v", got[0].ActiveRules)
 				}
 			}
 		})

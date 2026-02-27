@@ -4,14 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"github.com/srosignoli/faultline/pkg/config"
+	"github.com/srosignoli/faultline/pkg/k8s"
 )
 
 // SimulatorClient is the interface the API layer uses to manage simulators.
 // *k8s.Client satisfies this interface.
 type SimulatorClient interface {
 	CreateSimulator(ctx context.Context, name, dumpPayload, rulesPayload string) error
-	ListSimulators(ctx context.Context) ([]string, error)
+	ListSimulators(ctx context.Context) ([]k8s.SimulatorInfo, error)
 	DeleteSimulator(ctx context.Context, name string) error
+}
+
+// Simulator is the JSON response shape for a single running simulator.
+type Simulator struct {
+	Name        string              `json:"name"`
+	ActiveRules []config.RuleConfig `json:"active_rules"`
 }
 
 // Handler holds the dependencies for the HTTP handlers.
@@ -61,12 +70,25 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // --- handlers ---
 
 func (h *Handler) listSimulators(w http.ResponseWriter, r *http.Request) {
-	names, err := h.k8s.ListSimulators(r.Context())
+	infos, err := h.k8s.ListSimulators(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, names)
+	sims := make([]Simulator, 0, len(infos))
+	for _, info := range infos {
+		var rules []config.RuleConfig
+		if info.RulesYAML != "" {
+			if cfg, err := config.ParseConfig([]byte(info.RulesYAML)); err == nil {
+				rules = cfg.Rules
+			}
+		}
+		if rules == nil {
+			rules = []config.RuleConfig{}
+		}
+		sims = append(sims, Simulator{Name: info.Name, ActiveRules: rules})
+	}
+	writeJSON(w, http.StatusOK, sims)
 }
 
 func (h *Handler) createSimulator(w http.ResponseWriter, r *http.Request) {

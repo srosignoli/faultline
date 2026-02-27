@@ -129,12 +129,13 @@ func TestListSimulators(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		instances []string
-		want      []string
+		instances []string // simulator names to create
+		rulesYAML string   // rules payload passed to CreateSimulator
+		want      []string // expected instance names
 	}{
 		{name: "empty", instances: nil, want: []string{}},
-		{name: "one", instances: []string{"alpha"}, want: []string{"alpha"}},
-		{name: "two", instances: []string{"alpha", "beta"}, want: []string{"alpha", "beta"}},
+		{name: "one", instances: []string{"alpha"}, rulesYAML: "rules-alpha", want: []string{"alpha"}},
+		{name: "two", instances: []string{"alpha", "beta"}, rulesYAML: "rules-multi", want: []string{"alpha", "beta"}},
 	}
 
 	for _, tc := range tests {
@@ -145,7 +146,7 @@ func TestListSimulators(t *testing.T) {
 			ctx := context.Background()
 
 			for _, inst := range tc.instances {
-				if err := client.CreateSimulator(ctx, inst, "dump", "rules"); err != nil {
+				if err := client.CreateSimulator(ctx, inst, "dump", tc.rulesYAML); err != nil {
 					t.Fatalf("CreateSimulator(%s): %v", inst, err)
 				}
 			}
@@ -155,14 +156,19 @@ func TestListSimulators(t *testing.T) {
 				t.Fatalf("ListSimulators: %v", err)
 			}
 
-			sort.Strings(got)
-			sort.Strings(tc.want)
+			sort.Slice(got, func(i, j int) bool { return got[i].Name < got[j].Name })
+			wantNames := make([]string, len(tc.want))
+			copy(wantNames, tc.want)
+			sort.Strings(wantNames)
 
-			if len(got) != len(tc.want) {
-				t.Fatalf("got %v, want %v", got, tc.want)
+			if len(got) != len(wantNames) {
+				t.Fatalf("got %v, want %v", got, wantNames)
 			}
 			for i := range got {
-				assertEqual(t, got[i], tc.want[i], "instance name")
+				assertEqual(t, got[i].Name, wantNames[i], "instance name")
+				if tc.rulesYAML != "" {
+					assertEqual(t, got[i].RulesYAML, tc.rulesYAML, "rules yaml for "+got[i].Name)
+				}
 			}
 		})
 	}
