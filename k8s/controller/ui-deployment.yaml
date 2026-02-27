@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metricforge-ui
+  namespace: faultline
+  labels:
+    app: metricforge-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metricforge-ui
+  template:
+    metadata:
+      labels:
+        app: metricforge-ui
+    spec:
+      containers:
+      - name: ui
+        image: metricforge-ui:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metricforge-ui-svc
+  namespace: faultline
+spec:
+  type: ClusterIP
+  selector:
+    app: metricforge-ui
+  ports:
+  - port: 80
+    targetPort: 80
