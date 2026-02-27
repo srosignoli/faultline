@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: faultline-simulators
+  namespace: faultline
+spec:
+  selector:
+    matchLabels:
+      app: faultline-worker
+  endpoints:
+    - port: web
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - faultline

@@ -161,6 +161,7 @@ func (c *Client) createService(ctx context.Context, name string) error {
 			Selector: labels,
 			Ports: []corev1.ServicePort{
 				{
+					Name:       "web",
 					Port:       80,
 					TargetPort: intstr.FromInt32(8080),
 				},
