@@ -1,0 +1,15 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o simulator ./cmd/simulator
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S faultline \
+    && adduser -S faultline -G faultline
+COPY --from=builder /app/simulator /usr/local/bin/simulator
+USER faultline
+EXPOSE 8080
+ENTRYPOINT ["simulator"]
