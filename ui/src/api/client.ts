@@ -1,12 +1,29 @@
+export interface Mutator {
+  type: string;
+  params: Record<string, unknown>;
+}
+
+export interface RuleMatch {
+  metric_name: string;
+  labels?: Record<string, string>;
+}
+
+export interface Rule {
+  name: string;
+  match: RuleMatch;
+  mutator: Mutator;
+}
+
 export interface Simulator {
   name: string;
-  status?: string; // reserved for future backend extension
+  status?: string;
+  active_rules: Rule[];
 }
 
 export interface CreateSimulatorRequest {
   name: string;
-  dump_payload: string;   // matches Go json tag
-  rules_payload: string;  // matches Go json tag
+  dump_payload: string;
+  rules_payload: string;
 }
 
 const BASE = "/api";
@@ -21,8 +38,7 @@ async function checkResponse(res: Response): Promise<void> {
 export async function getSimulators(): Promise<Simulator[]> {
   const res = await fetch(`${BASE}/simulators`);
   await checkResponse(res);
-  const names: string[] = await res.json();
-  return names.map((name) => ({ name }));
+  return res.json() as Promise<Simulator[]>;
 }
 
 export async function createSimulator(req: CreateSimulatorRequest): Promise<void> {
