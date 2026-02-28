@@ -22,6 +22,9 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
+        env:
+        - name: WORKER_IMAGE
+          value: "faultline-worker:latest"
         securityContext:
           runAsNonRoot: true
           allowPrivilegeEscalation: false

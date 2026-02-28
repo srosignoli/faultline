@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -95,6 +96,10 @@ func (c *Client) createConfigMap(ctx context.Context, name, dumpPayload, rulesPa
 func (c *Client) createDeployment(ctx context.Context, name string) error {
 	replicas := int32(1)
 	labels := commonLabels(name)
+	workerImage := os.Getenv("WORKER_IMAGE")
+	if workerImage == "" {
+		workerImage = "faultline-worker:latest"
+	}
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name + "-deployment",
@@ -113,8 +118,9 @@ func (c *Client) createDeployment(ctx context.Context, name string) error {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "worker",
-							Image: "faultline-worker:latest",
+							Name:            "worker",
+							Image:           workerImage,
+							ImagePullPolicy: corev1.PullIfNotPresent,
 							Ports: []corev1.ContainerPort{
 								{ContainerPort: 8080},
 							},
