@@ -17,23 +17,23 @@ type Config struct {
 
 // RuleConfig describes a single mutation rule.
 type RuleConfig struct {
-	Name    string        `yaml:"name"`
-	Match   MatchConfig   `yaml:"match"`
-	Mutator MutatorConfig `yaml:"mutator"`
+	Name    string        `yaml:"name"    json:"name"`
+	Match   MatchConfig   `yaml:"match"   json:"match"`
+	Mutator MutatorConfig `yaml:"mutator" json:"mutator"`
 }
 
 // MatchConfig specifies which metrics a rule applies to.
 type MatchConfig struct {
-	MetricName string            `yaml:"metric_name"`
-	Labels     map[string]string `yaml:"labels"`
+	MetricName string            `yaml:"metric_name" json:"metric_name"`
+	Labels     map[string]string `yaml:"labels"      json:"labels,omitempty"`
 }
 
 // MutatorConfig specifies the mutator type and its parameters.
 // Params is map[string]interface{} because yaml.v3 decodes whole-number
 // scalars as int and decimals as float64 — handled by the toFloat64 helper.
 type MutatorConfig struct {
-	Type   string                 `yaml:"type"`
-	Params map[string]interface{} `yaml:"params"`
+	Type   string                 `yaml:"type"   json:"type"`
+	Params map[string]interface{} `yaml:"params" json:"params"`
 }
 
 // ParseConfig parses raw YAML bytes into a Config.
