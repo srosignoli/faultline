@@ -7,8 +7,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o controller ./cmd/
 
 FROM alpine:latest
 RUN apk add --no-cache ca-certificates \
-    && addgroup -S faultline \
-    && adduser -S faultline -G faultline
+    && addgroup -g 10001 -S faultline \
+    && adduser -u 10001 -S faultline -G faultline
 COPY --from=builder /app/controller /usr/local/bin/controller
 USER faultline
 EXPOSE 8080
