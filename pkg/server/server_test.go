@@ -49,8 +49,8 @@ func TestMetricsHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		run   func(t *testing.T)
+		name string
+		run  func(t *testing.T)
 	}{
 		{
 			name: "gauge no labels no rules",
@@ -89,11 +89,31 @@ func TestMetricsHandler(t *testing.T) {
 				rules := []mutator.Rule{
 					{
 						Selector: mutator.LabelSelector{Name: "metric_name"},
-						Mutator:  mutator.Spike{Multiplier: 2, Duration: 10 * time.Second},
+						Mutator:  mutator.Spike{Multiplier: 2},
 					},
 				}
 				srv := server.New(metrics, rules)
-				srv.StartTime = time.Now() // elapsed ≈ 0, within 10s spike window
+				// Schedule.Duration==0 means always active; no state manipulation needed.
+				body := doRequest(t, srv)
+				assertContains(t, body, "metric_name 200\n")
+			},
+		},
+		{
+			name: "spike rule applied with explicit window",
+			run: func(t *testing.T) {
+				t.Parallel()
+				metrics := []*parser.Metric{
+					{Name: "metric_name", Type: parser.Gauge, Value: 100},
+				}
+				rules := []mutator.Rule{
+					{
+						Selector: mutator.LabelSelector{Name: "metric_name"},
+						Mutator:  mutator.Spike{Multiplier: 2},
+						Schedule: mutator.ScheduleConfig{Duration: 10 * time.Second},
+					},
+				}
+				srv := server.New(metrics, rules)
+				srv.States[0].ActiveUntil = time.Now().Add(10 * time.Second)
 				body := doRequest(t, srv)
 				assertContains(t, body, "metric_name 200\n")
 			},
@@ -108,7 +128,7 @@ func TestMetricsHandler(t *testing.T) {
 				rules := []mutator.Rule{
 					{
 						Selector: mutator.LabelSelector{Name: "other_metric"},
-						Mutator:  mutator.Spike{Multiplier: 10, Duration: 10 * time.Second},
+						Mutator:  mutator.Spike{Multiplier: 10},
 					},
 				}
 				srv := server.New(metrics, rules)

@@ -27,6 +27,12 @@ func assertApprox(t *testing.T, got, want, tol float64, label string) {
 	}
 }
 
+// alwaysActive returns a state and schedule that make any mutator always fire.
+func alwaysActive(now time.Time) (*mutator.RuleState, mutator.ScheduleConfig) {
+	state := mutator.NewRuleState(now.Add(-time.Hour))
+	return state, mutator.ScheduleConfig{} // Duration==0 = always active
+}
+
 // ---- Jitter ----------------------------------------------------------------
 
 func TestJitter(t *testing.T) {
@@ -51,8 +57,10 @@ func TestJitter(t *testing.T) {
 			t.Parallel()
 			j := mutator.Jitter{Variance: tc.variance}
 			maxDelta := tc.variance * math.Abs(tc.base)
+			now := time.Unix(1_000_000, 0)
+			state, sched := alwaysActive(now)
 			for i := 0; i < iterations; i++ {
-				got := j.Apply(tc.base, 0)
+				got := j.Apply(tc.base, state, sched, now)
 				if math.Abs(got-tc.base) > maxDelta+1e-12 {
 					t.Fatalf("iteration %d: got %v outside [%v, %v]",
 						i, got, tc.base-maxDelta, tc.base+maxDelta)
@@ -87,7 +95,11 @@ func TestTrend(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tr := mutator.Trend{RatePerSecond: tc.rate}
-			got := tr.Apply(tc.base, tc.elapsed)
+			now := time.Unix(1_000_000, 0)
+			state := mutator.NewRuleState(now.Add(-time.Hour))
+			state.ActiveSince = now.Add(-tc.elapsed)
+			sched := mutator.ScheduleConfig{} // Duration==0 = always active
+			got := tr.Apply(tc.base, state, sched, now)
 			assertFloat(t, got, tc.want, tc.name)
 		})
 	}
@@ -98,38 +110,28 @@ func TestTrend(t *testing.T) {
 func TestSpike(t *testing.T) {
 	t.Parallel()
 
-	dur := 5 * time.Second
-
-	cases := []struct {
-		name    string
-		elapsed time.Duration
-		active  bool
-	}{
-		{"t=0 active", 0, true},
-		{"t=midway active", dur / 2, true},
-		{"t=Duration-1ns active", dur - time.Nanosecond, true},
-		{"t=Duration inactive boundary", dur, false},
-		{"t=2xDuration inactive", 2 * dur, false},
-	}
-
 	base := 100.0
 	multiplier := 3.0
-	s := mutator.Spike{Multiplier: multiplier, Duration: dur}
+	s := mutator.Spike{Multiplier: multiplier}
+	now := time.Unix(1_000_000, 0)
+	sched := mutator.ScheduleConfig{Duration: 5 * time.Second}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := s.Apply(base, tc.elapsed)
-			var want float64
-			if tc.active {
-				want = base * multiplier
-			} else {
-				want = base
-			}
-			assertFloat(t, got, want, tc.name)
-		})
-	}
+	t.Run("active window", func(t *testing.T) {
+		t.Parallel()
+		state := mutator.NewRuleState(now.Add(-time.Hour))
+		state.ActiveUntil = now.Add(time.Hour)
+		got := s.Apply(base, state, sched, now)
+		assertFloat(t, got, base*multiplier, "active")
+	})
+
+	t.Run("inactive not yet triggered", func(t *testing.T) {
+		t.Parallel()
+		state := mutator.NewRuleState(now.Add(-time.Hour))
+		state.ActiveUntil = now.Add(-time.Second)      // window expired
+		state.NextTriggerTime = now.Add(time.Hour)     // next trigger in future
+		got := s.Apply(base, state, sched, now)
+		assertFloat(t, got, base, "inactive")
+	})
 }
 
 // ---- Wave ------------------------------------------------------------------
@@ -160,7 +162,10 @@ func TestWave(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := w.Apply(base, tc.elapsed)
+			now := time.Unix(1_000_000, 0)
+			state := mutator.NewRuleState(now.Add(-tc.elapsed)) // StartTime = now - elapsed
+			sched := mutator.ScheduleConfig{}                    // Duration==0 = always active
+			got := w.Apply(base, state, sched, now)
 			assertApprox(t, got, tc.want, tc.tol+1e-10, tc.name)
 		})
 	}

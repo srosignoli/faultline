@@ -8,10 +8,11 @@ type LabelSelector struct {
 	Labels map[string]string
 }
 
-// Rule pairs a LabelSelector with a Mutator to apply when the selector matches.
+// Rule pairs a LabelSelector with a Mutator and ScheduleConfig to apply when the selector matches.
 type Rule struct {
 	Selector LabelSelector
 	Mutator  Mutator
+	Schedule ScheduleConfig
 }
 
 // Matches reports whether the given metric name and labels satisfy the selector.

@@ -12,26 +12,31 @@ import (
 	"github.com/srosignoli/faultline/pkg/parser"
 )
 
-// SimulatorServer holds the pre-parsed metrics and mutation rules.
+// SimulatorServer holds the pre-parsed metrics, mutation rules, and per-rule state.
 type SimulatorServer struct {
-	Metrics   []*parser.Metric
-	Rules     []mutator.Rule
-	StartTime time.Time
+	Metrics []*parser.Metric
+	Rules   []mutator.Rule
+	States  map[int]*mutator.RuleState // keyed by rule index
 }
 
-// New creates a SimulatorServer with StartTime set to now.
+// New creates a SimulatorServer with per-rule states initialized to now.
 func New(metrics []*parser.Metric, rules []mutator.Rule) *SimulatorServer {
+	now := time.Now()
+	states := make(map[int]*mutator.RuleState, len(rules))
+	for i := range rules {
+		states[i] = mutator.NewRuleState(now)
+	}
 	return &SimulatorServer{
-		Metrics:   metrics,
-		Rules:     rules,
-		StartTime: time.Now(),
+		Metrics: metrics,
+		Rules:   rules,
+		States:  states,
 	}
 }
 
 // MetricsHandler serves the mutated metrics in Prometheus text exposition format.
 func (s *SimulatorServer) MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	elapsed := time.Since(s.StartTime)
+	now := time.Now()
 	seen := make(map[string]bool)
 
 	for _, m := range s.Metrics {
@@ -44,9 +49,9 @@ func (s *SimulatorServer) MetricsHandler(w http.ResponseWriter, r *http.Request)
 		}
 
 		value := m.Value
-		for _, rule := range s.Rules {
+		for i, rule := range s.Rules {
 			if rule.Matches(m.Name, m.Labels) {
-				value = rule.Mutator.Apply(value, elapsed)
+				value = rule.Mutator.Apply(value, s.States[i], rule.Schedule, now)
 				break // first matching rule wins
 			}
 		}

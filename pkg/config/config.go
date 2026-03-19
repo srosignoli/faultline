@@ -66,12 +66,17 @@ func BuildRules(cfg *Config) ([]mutator.Rule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: rule[%d] %q: %w", i, rc.Name, err)
 		}
+		sched, err := buildSchedule(rc.Mutator.Params)
+		if err != nil {
+			return nil, fmt.Errorf("config: rule[%d] %q: schedule: %w", i, rc.Name, err)
+		}
 		rules = append(rules, mutator.Rule{
 			Selector: mutator.LabelSelector{
 				Name:   rc.Match.MetricName,
 				Labels: rc.Match.Labels,
 			},
-			Mutator: m,
+			Mutator:  m,
+			Schedule: sched,
 		})
 	}
 	return rules, nil
@@ -98,11 +103,7 @@ func buildMutator(mc MutatorConfig) (mutator.Mutator, error) {
 		if err != nil {
 			return nil, fmt.Errorf("spike: multiplier: %w", err)
 		}
-		dur, err := toDuration(mc.Params["duration"])
-		if err != nil {
-			return nil, fmt.Errorf("spike: duration: %w", err)
-		}
-		return mutator.Spike{Multiplier: mult, Duration: dur}, nil
+		return mutator.Spike{Multiplier: mult}, nil
 
 	case "wave":
 		amp, err := toFloat64(mc.Params["amplitude"])
@@ -118,6 +119,43 @@ func buildMutator(mc MutatorConfig) (mutator.Mutator, error) {
 	default:
 		return nil, fmt.Errorf("unknown mutator type %q", mc.Type)
 	}
+}
+
+// buildSchedule extracts optional scheduling fields from a params map.
+// All keys are optional; missing keys leave the field at its zero value.
+func buildSchedule(params map[string]interface{}) (mutator.ScheduleConfig, error) {
+	var sched mutator.ScheduleConfig
+
+	if v, ok := params["initial_delay"]; ok {
+		d, err := toDuration(v)
+		if err != nil {
+			return sched, fmt.Errorf("initial_delay: %w", err)
+		}
+		sched.InitialDelay = d
+	}
+	if v, ok := params["duration"]; ok {
+		d, err := toDuration(v)
+		if err != nil {
+			return sched, fmt.Errorf("duration: %w", err)
+		}
+		sched.Duration = d
+	}
+	if v, ok := params["interval"]; ok {
+		d, err := toDuration(v)
+		if err != nil {
+			return sched, fmt.Errorf("interval: %w", err)
+		}
+		sched.Interval = d
+	}
+	if v, ok := params["interval_jitter"]; ok {
+		d, err := toDuration(v)
+		if err != nil {
+			return sched, fmt.Errorf("interval_jitter: %w", err)
+		}
+		sched.IntervalJitter = d
+	}
+
+	return sched, nil
 }
 
 func toFloat64(v interface{}) (float64, error) {

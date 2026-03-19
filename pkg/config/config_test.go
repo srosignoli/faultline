@@ -32,6 +32,13 @@ func assertApprox(t *testing.T, got, want, tol float64) {
 	}
 }
 
+// mustApply calls Apply with an always-active state (Duration==0).
+func mustApply(m mutator.Mutator, value float64) float64 {
+	now := time.Now()
+	state := mutator.NewRuleState(now.Add(-time.Hour))
+	return m.Apply(value, state, mutator.ScheduleConfig{}, now)
+}
+
 // TestLoadConfig exercises file-level loading.
 func TestLoadConfig(t *testing.T) {
 	t.Parallel()
@@ -144,7 +151,7 @@ func TestBuildRules(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
-				assertFloat(t, rules[0].Mutator.Apply(100, 0), 100)
+				assertFloat(t, mustApply(rules[0].Mutator, 100), 100)
 			},
 		},
 		{
@@ -160,7 +167,10 @@ func TestBuildRules(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
-				assertFloat(t, rules[0].Mutator.Apply(100, time.Second), 110)
+				now := time.Unix(1_000_000, 0)
+				state := mutator.NewRuleState(now.Add(-time.Hour))
+				state.ActiveSince = now.Add(-time.Second)
+				assertFloat(t, rules[0].Mutator.Apply(100, state, mutator.ScheduleConfig{}, now), 110)
 			},
 		},
 		{
@@ -176,11 +186,14 @@ func TestBuildRules(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
-				assertFloat(t, rules[0].Mutator.Apply(100, time.Second), 110)
+				now := time.Unix(1_000_000, 0)
+				state := mutator.NewRuleState(now.Add(-time.Hour))
+				state.ActiveSince = now.Add(-time.Second)
+				assertFloat(t, rules[0].Mutator.Apply(100, state, mutator.ScheduleConfig{}, now), 110)
 			},
 		},
 		{
-			name: "spike multiplier=2 duration=10s elapsed=0",
+			name: "spike multiplier=2 duration=10s active",
 			rules: []config.RuleConfig{
 				{
 					Name:  "s",
@@ -195,11 +208,14 @@ func TestBuildRules(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
-				assertFloat(t, rules[0].Mutator.Apply(100, 0), 200)
+				now := time.Unix(1_000_000, 0)
+				state := mutator.NewRuleState(now.Add(-time.Hour))
+				state.ActiveUntil = now.Add(time.Hour) // inside active window
+				assertFloat(t, rules[0].Mutator.Apply(100, state, rules[0].Schedule, now), 200)
 			},
 		},
 		{
-			name: "spike elapsed>=duration",
+			name: "spike elapsed>=duration inactive",
 			rules: []config.RuleConfig{
 				{
 					Name:  "s",
@@ -214,11 +230,14 @@ func TestBuildRules(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
-				assertFloat(t, rules[0].Mutator.Apply(100, 10*time.Second), 100)
+				now := time.Unix(1_000_000, 0)
+				state := mutator.NewRuleState(now.Add(-time.Hour))
+				state.NextTriggerTime = now.Add(time.Hour) // next trigger not yet reached
+				assertFloat(t, rules[0].Mutator.Apply(100, state, rules[0].Schedule, now), 100)
 			},
 		},
 		{
-			name: "spike with interval param silently ignored",
+			name: "spike interval now honoured",
 			rules: []config.RuleConfig{
 				{
 					Name:  "s",
@@ -234,7 +253,7 @@ func TestBuildRules(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
-				assertFloat(t, rules[0].Mutator.Apply(100, 0), 200)
+				assertEqual(t, rules[0].Schedule.Interval, 30*time.Second)
 			},
 		},
 		{
@@ -254,7 +273,9 @@ func TestBuildRules(t *testing.T) {
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
 				// At 0.25s with freq=1Hz: sin(2π*1*0.25) = sin(π/2) = 1 → 100+10=110
-				assertApprox(t, rules[0].Mutator.Apply(100, 250*time.Millisecond), 110, 1e-9)
+				now := time.Unix(1_000_000, 0)
+				state := mutator.NewRuleState(now.Add(-250 * time.Millisecond))
+				assertApprox(t, rules[0].Mutator.Apply(100, state, mutator.ScheduleConfig{}, now), 110, 1e-9)
 			},
 		},
 		{

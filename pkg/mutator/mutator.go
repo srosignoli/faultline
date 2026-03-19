@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// Mutator applies a transformation to a metric value based on elapsed time.
-// elapsed is time since the rule was first applied to a metric.
-// Mutators are stateless w.r.t. the clock; the caller owns startTime.
+// Mutator applies a transformation to a metric value.
+// state carries per-rule scheduling state; sched controls when the mutator fires;
+// now is the current clock snapshot for the scrape.
 type Mutator interface {
-	Apply(currentValue float64, elapsed time.Duration) float64
+	Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64
 }
 
 // Jitter adds random noise proportional to the current value.
@@ -19,42 +19,51 @@ type Jitter struct {
 	Variance float64
 }
 
-func (j Jitter) Apply(currentValue float64, _ time.Duration) float64 {
-	noise := (rand.Float64()*2 - 1) * j.Variance * currentValue
-	return currentValue + noise
+func (j Jitter) Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64 {
+	if !state.IsActive(sched, now) {
+		return value
+	}
+	noise := (rand.Float64()*2 - 1) * j.Variance * value
+	return value + noise
 }
 
-// Trend adds a linear drift to the current value over time.
+// Trend adds a linear drift to the current value, computed from the start of the active window.
 // RatePerSecond is the units added per second (negative = decreasing).
 type Trend struct {
 	RatePerSecond float64
 }
 
-func (t Trend) Apply(currentValue float64, elapsed time.Duration) float64 {
-	return currentValue + t.RatePerSecond*elapsed.Seconds()
+func (t Trend) Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64 {
+	if !state.IsActive(sched, now) {
+		return value
+	}
+	elapsed := now.Sub(state.GetActiveSince())
+	return value + t.RatePerSecond*elapsed.Seconds()
 }
 
-// Spike multiplies the current value by Multiplier for the given Duration,
-// then returns the original value. At elapsed == Duration the spike is off.
+// Spike multiplies the current value during the active window.
 type Spike struct {
 	Multiplier float64
-	Duration   time.Duration
 }
 
-func (s Spike) Apply(currentValue float64, elapsed time.Duration) float64 {
-	if elapsed < s.Duration {
-		return currentValue * s.Multiplier
+func (s Spike) Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64 {
+	if !state.IsActive(sched, now) {
+		return value
 	}
-	return currentValue
+	return value * s.Multiplier
 }
 
-// Wave adds a sinusoidal oscillation to the current value.
+// Wave adds a sinusoidal oscillation using lifetime elapsed (from state.StartTime).
 // Amplitude is the peak deviation; Frequency is in Hz.
 type Wave struct {
 	Amplitude float64
 	Frequency float64
 }
 
-func (w Wave) Apply(currentValue float64, elapsed time.Duration) float64 {
-	return currentValue + w.Amplitude*math.Sin(2*math.Pi*w.Frequency*elapsed.Seconds())
+func (w Wave) Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64 {
+	if !state.IsActive(sched, now) {
+		return value
+	}
+	elapsed := now.Sub(state.StartTime)
+	return value + w.Amplitude*math.Sin(2*math.Pi*w.Frequency*elapsed.Seconds())
 }
