@@ -28,17 +28,33 @@ func (j Jitter) Apply(value float64, state *RuleState, sched ScheduleConfig, now
 }
 
 // Trend adds a linear drift to the current value, computed from the start of the active window.
-// RatePerSecond is the units added per second (negative = decreasing).
+// Slope is the units added per second (negative = decreasing).
 type Trend struct {
-	RatePerSecond float64
+	Slope float64
 }
 
 func (t Trend) Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64 {
 	if !state.IsActive(sched, now) {
 		return value
 	}
-	elapsed := now.Sub(state.GetActiveSince())
-	return value + t.RatePerSecond*elapsed.Seconds()
+	elapsed := now.Sub(state.GetCurrentWindowStart())
+	return value + t.Slope*elapsed.Seconds()
+}
+
+// Outage suppresses metric values during the active window.
+// Action controls the suppression behaviour; currently only "drop_to_zero" is supported.
+type Outage struct {
+	Action string
+}
+
+func (o Outage) Apply(value float64, state *RuleState, sched ScheduleConfig, now time.Time) float64 {
+	if !state.IsActive(sched, now) {
+		return value
+	}
+	if o.Action == "drop_to_zero" {
+		return 0.0
+	}
+	return value
 }
 
 // Spike multiplies the current value during the active window.

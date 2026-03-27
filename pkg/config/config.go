@@ -92,11 +92,18 @@ func buildMutator(mc MutatorConfig) (mutator.Mutator, error) {
 		return mutator.Jitter{Variance: v}, nil
 
 	case "trend":
-		v, err := toFloat64(mc.Params["rate_per_second"])
+		v, err := toFloat64(mc.Params["slope"])
 		if err != nil {
-			return nil, fmt.Errorf("trend: rate_per_second: %w", err)
+			return nil, fmt.Errorf("trend: slope: %w", err)
 		}
-		return mutator.Trend{RatePerSecond: v}, nil
+		return mutator.Trend{Slope: v}, nil
+
+	case "outage":
+		action, _ := mc.Params["action"].(string)
+		if action == "" {
+			return nil, fmt.Errorf("outage: missing required param 'action'")
+		}
+		return mutator.Outage{Action: action}, nil
 
 	case "spike":
 		mult, err := toFloat64(mc.Params["multiplier"])

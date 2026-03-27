@@ -58,7 +58,7 @@ rules:
     mutator:
       type: trend
       params:
-        rate_per_second: 1.0
+        slope: 1.0
   - name: spike_rule
     match:
       metric_name: error_rate
@@ -162,14 +162,14 @@ func TestBuildRules(t *testing.T) {
 					Match: config.MatchConfig{MetricName: "m"},
 					Mutator: config.MutatorConfig{
 						Type:   "trend",
-						Params: map[string]interface{}{"rate_per_second": float64(10)},
+						Params: map[string]interface{}{"slope": float64(10)},
 					},
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
 				now := time.Unix(1_000_000, 0)
 				state := mutator.NewRuleState(now.Add(-time.Hour))
-				state.ActiveSince = now.Add(-time.Second)
+				state.CurrentWindowStart = now.Add(-time.Second)
 				assertFloat(t, rules[0].Mutator.Apply(100, state, mutator.ScheduleConfig{}, now), 110)
 			},
 		},
@@ -181,14 +181,14 @@ func TestBuildRules(t *testing.T) {
 					Match: config.MatchConfig{MetricName: "m"},
 					Mutator: config.MutatorConfig{
 						Type:   "trend",
-						Params: map[string]interface{}{"rate_per_second": int(10)},
+						Params: map[string]interface{}{"slope": int(10)},
 					},
 				},
 			},
 			check: func(t *testing.T, rules []mutator.Rule) {
 				now := time.Unix(1_000_000, 0)
 				state := mutator.NewRuleState(now.Add(-time.Hour))
-				state.ActiveSince = now.Add(-time.Second)
+				state.CurrentWindowStart = now.Add(-time.Second)
 				assertFloat(t, rules[0].Mutator.Apply(100, state, mutator.ScheduleConfig{}, now), 110)
 			},
 		},
@@ -316,7 +316,7 @@ func TestBuildRules(t *testing.T) {
 					},
 					Mutator: config.MutatorConfig{
 						Type:   "trend",
-						Params: map[string]interface{}{"rate_per_second": float64(1)},
+						Params: map[string]interface{}{"slope": float64(1)},
 					},
 				},
 			},
@@ -346,6 +346,350 @@ func TestBuildRules(t *testing.T) {
 			if tc.check != nil {
 				tc.check(t, rules)
 			}
+		})
+	}
+}
+
+// TestBuildRules16Scenarios parses a 20-rule YAML payload and asserts each
+// rule's mutator type, relevant fields, and schedule parameters.
+func TestBuildRules16Scenarios(t *testing.T) {
+	t.Parallel()
+
+	const yamlPayload = `
+rules:
+  # --- SPIKE SCENARIOS ---
+  - name: "Viral Traffic Surge"
+    match: { metric_name: "http_requests_total" }
+    mutator:
+      type: "spike"
+      params: { multiplier: 50.0, initial_delay: "1m", duration: "2m", interval: "1h" }
+  - name: "CPU Steal Time Spike"
+    match: { metric_name: "node_cpu_steal_seconds_total" }
+    mutator:
+      type: "spike"
+      params: { multiplier: 15.0, duration: "5m", interval: "4h" }
+  - name: "Slow DB Queries"
+    match: { metric_name: "db_query_duration_seconds" }
+    mutator:
+      type: "spike"
+      params: { multiplier: 8.0, duration: "3m", interval: "30m" }
+  - name: "CrashLoopBackOff Spike"
+    match: { metric_name: "kube_pod_container_status_restarts_total" }
+    mutator:
+      type: "spike"
+      params: { multiplier: 10.0, duration: "10m" }
+  # --- TREND SCENARIOS ---
+  - name: "API Server Memory Leak"
+    match: { metric_name: "process_resident_memory_bytes" }
+    mutator:
+      type: "trend"
+      params: { slope: 1048576.0, interval: "1h" }
+  - name: "Goroutine Leak"
+    match: { metric_name: "go_goroutines" }
+    mutator:
+      type: "trend"
+      params: { slope: 5.0, interval: "24h" }
+  - name: "Log Spam Disk Fill"
+    match: { metric_name: "node_filesystem_free_bytes" }
+    mutator:
+      type: "trend"
+      params: { slope: -50000000.0 }
+  - name: "Email Queue Backup"
+    match: { metric_name: "email_queue_length" }
+    mutator:
+      type: "trend"
+      params: { slope: 10.0, interval: "45m" }
+  # --- JITTER SCENARIOS ---
+  - name: "Unstable Network Interface"
+    match: { metric_name: "node_network_transmit_bytes_total" }
+    mutator:
+      type: "jitter"
+      params: { variance: 0.80, duration: "5m", interval: "30m" }
+  - name: "Redis Cache Thrashing"
+    match: { metric_name: "redis_keyspace_hits_total" }
+    mutator:
+      type: "jitter"
+      params: { variance: 0.50, duration: "10m", interval: "1h" }
+  - name: "Sporadic CPU Throttling"
+    match: { metric_name: "container_cpu_cfs_throttled_seconds_total" }
+    mutator:
+      type: "jitter"
+      params: { variance: 0.35, duration: "2m", interval: "10m", interval_jitter: "5m" }
+  - name: "DB Connection Storm"
+    match: { metric_name: "mysql_global_status_threads_connected" }
+    mutator:
+      type: "jitter"
+      params: { variance: 0.90, duration: "3m", interval: "15m" }
+  # --- OUTAGE SCENARIOS ---
+  - name: "Auth Service Crash"
+    match: { metric_name: "auth_service_up" }
+    mutator:
+      type: "outage"
+      params: { action: "drop_to_zero", duration: "4m", interval: "2h" }
+  - name: "Silent Backup Job Failure"
+    match: { metric_name: "backup_job_last_success_timestamp" }
+    mutator:
+      type: "outage"
+      params: { action: "drop_to_zero", duration: "30m", interval: "24h" }
+  - name: "AWS SQS Outage"
+    match: { metric_name: "sqs_messages_visible" }
+    mutator:
+      type: "outage"
+      params: { action: "drop_to_zero", duration: "15m" }
+  - name: "EBS Volume Detached"
+    match: { metric_name: "node_filesystem_avail_bytes" }
+    mutator:
+      type: "outage"
+      params: { action: "drop_to_zero", duration: "8m" }
+  # --- WAVE SCENARIOS ---
+  - name: "Daily Traffic Wave"
+    match: { metric_name: "http_requests_total" }
+    mutator:
+      type: "wave"
+      params: { amplitude: 500.0, frequency: 0.0000115741 }
+  - name: "Intraday Latency Oscillation"
+    match: { metric_name: "http_request_duration_seconds" }
+    mutator:
+      type: "wave"
+      params: { amplitude: 0.05, frequency: 0.0000347222, initial_delay: "5m" }
+  - name: "Periodic Scrape Noise"
+    match: { metric_name: "up" }
+    mutator:
+      type: "wave"
+      params: { amplitude: 0.1, frequency: 0.00166667, duration: "10m", interval: "1h" }
+  - name: "Weekly Batch Volume Pattern"
+    match: { metric_name: "batch_jobs_total" }
+    mutator:
+      type: "wave"
+      params: { amplitude: 200.0, frequency: 0.00000165 }
+`
+
+	cfg, err := config.ParseConfig([]byte(yamlPayload))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	rules, err := config.BuildRules(cfg)
+	if err != nil {
+		t.Fatalf("BuildRules: %v", err)
+	}
+	if len(rules) != 20 {
+		t.Fatalf("expected 20 rules, got %d", len(rules))
+	}
+
+	type ruleAssertion struct {
+		name     string
+		checkFn  func(t *testing.T, r mutator.Rule)
+	}
+
+	assertions := []ruleAssertion{
+		// 0 — Viral Traffic Surge
+		{"Viral Traffic Surge", func(t *testing.T, r mutator.Rule) {
+			s, ok := r.Mutator.(mutator.Spike)
+			if !ok {
+				t.Fatal("expected Spike")
+			}
+			assertFloat(t, s.Multiplier, 50.0)
+			assertEqual(t, r.Schedule.InitialDelay, 1*time.Minute)
+			assertEqual(t, r.Schedule.Duration, 2*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 1*time.Hour)
+		}},
+		// 1 — CPU Steal Time Spike
+		{"CPU Steal Time Spike", func(t *testing.T, r mutator.Rule) {
+			s, ok := r.Mutator.(mutator.Spike)
+			if !ok {
+				t.Fatal("expected Spike")
+			}
+			assertFloat(t, s.Multiplier, 15.0)
+			assertEqual(t, r.Schedule.Duration, 5*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 4*time.Hour)
+		}},
+		// 2 — Slow DB Queries
+		{"Slow DB Queries", func(t *testing.T, r mutator.Rule) {
+			s, ok := r.Mutator.(mutator.Spike)
+			if !ok {
+				t.Fatal("expected Spike")
+			}
+			assertFloat(t, s.Multiplier, 8.0)
+			assertEqual(t, r.Schedule.Duration, 3*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 30*time.Minute)
+		}},
+		// 3 — CrashLoopBackOff Spike
+		{"CrashLoopBackOff Spike", func(t *testing.T, r mutator.Rule) {
+			s, ok := r.Mutator.(mutator.Spike)
+			if !ok {
+				t.Fatal("expected Spike")
+			}
+			assertFloat(t, s.Multiplier, 10.0)
+			assertEqual(t, r.Schedule.Duration, 10*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 0)
+		}},
+		// 4 — API Server Memory Leak
+		{"API Server Memory Leak", func(t *testing.T, r mutator.Rule) {
+			tr, ok := r.Mutator.(mutator.Trend)
+			if !ok {
+				t.Fatal("expected Trend")
+			}
+			assertFloat(t, tr.Slope, 1048576.0)
+			assertEqual(t, r.Schedule.Interval, 1*time.Hour)
+		}},
+		// 5 — Goroutine Leak
+		{"Goroutine Leak", func(t *testing.T, r mutator.Rule) {
+			tr, ok := r.Mutator.(mutator.Trend)
+			if !ok {
+				t.Fatal("expected Trend")
+			}
+			assertFloat(t, tr.Slope, 5.0)
+			assertEqual(t, r.Schedule.Interval, 24*time.Hour)
+		}},
+		// 6 — Log Spam Disk Fill
+		{"Log Spam Disk Fill", func(t *testing.T, r mutator.Rule) {
+			tr, ok := r.Mutator.(mutator.Trend)
+			if !ok {
+				t.Fatal("expected Trend")
+			}
+			assertFloat(t, tr.Slope, -50000000.0)
+			assertEqual(t, r.Schedule.Interval, 0)
+		}},
+		// 7 — Email Queue Backup
+		{"Email Queue Backup", func(t *testing.T, r mutator.Rule) {
+			tr, ok := r.Mutator.(mutator.Trend)
+			if !ok {
+				t.Fatal("expected Trend")
+			}
+			assertFloat(t, tr.Slope, 10.0)
+			assertEqual(t, r.Schedule.Interval, 45*time.Minute)
+		}},
+		// 8 — Unstable Network Interface
+		{"Unstable Network Interface", func(t *testing.T, r mutator.Rule) {
+			j, ok := r.Mutator.(mutator.Jitter)
+			if !ok {
+				t.Fatal("expected Jitter")
+			}
+			assertFloat(t, j.Variance, 0.80)
+			assertEqual(t, r.Schedule.Duration, 5*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 30*time.Minute)
+		}},
+		// 9 — Redis Cache Thrashing
+		{"Redis Cache Thrashing", func(t *testing.T, r mutator.Rule) {
+			j, ok := r.Mutator.(mutator.Jitter)
+			if !ok {
+				t.Fatal("expected Jitter")
+			}
+			assertFloat(t, j.Variance, 0.50)
+			assertEqual(t, r.Schedule.Duration, 10*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 1*time.Hour)
+		}},
+		// 10 — Sporadic CPU Throttling
+		{"Sporadic CPU Throttling", func(t *testing.T, r mutator.Rule) {
+			j, ok := r.Mutator.(mutator.Jitter)
+			if !ok {
+				t.Fatal("expected Jitter")
+			}
+			assertFloat(t, j.Variance, 0.35)
+			assertEqual(t, r.Schedule.Duration, 2*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 10*time.Minute)
+			assertEqual(t, r.Schedule.IntervalJitter, 5*time.Minute)
+		}},
+		// 11 — DB Connection Storm
+		{"DB Connection Storm", func(t *testing.T, r mutator.Rule) {
+			j, ok := r.Mutator.(mutator.Jitter)
+			if !ok {
+				t.Fatal("expected Jitter")
+			}
+			assertFloat(t, j.Variance, 0.90)
+			assertEqual(t, r.Schedule.Duration, 3*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 15*time.Minute)
+		}},
+		// 12 — Auth Service Crash
+		{"Auth Service Crash", func(t *testing.T, r mutator.Rule) {
+			o, ok := r.Mutator.(mutator.Outage)
+			if !ok {
+				t.Fatal("expected Outage")
+			}
+			assertEqual(t, o.Action, "drop_to_zero")
+			assertEqual(t, r.Schedule.Duration, 4*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 2*time.Hour)
+		}},
+		// 13 — Silent Backup Job Failure
+		{"Silent Backup Job Failure", func(t *testing.T, r mutator.Rule) {
+			o, ok := r.Mutator.(mutator.Outage)
+			if !ok {
+				t.Fatal("expected Outage")
+			}
+			assertEqual(t, o.Action, "drop_to_zero")
+			assertEqual(t, r.Schedule.Duration, 30*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 24*time.Hour)
+		}},
+		// 14 — AWS SQS Outage
+		{"AWS SQS Outage", func(t *testing.T, r mutator.Rule) {
+			o, ok := r.Mutator.(mutator.Outage)
+			if !ok {
+				t.Fatal("expected Outage")
+			}
+			assertEqual(t, o.Action, "drop_to_zero")
+			assertEqual(t, r.Schedule.Duration, 15*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 0)
+		}},
+		// 15 — EBS Volume Detached
+		{"EBS Volume Detached", func(t *testing.T, r mutator.Rule) {
+			o, ok := r.Mutator.(mutator.Outage)
+			if !ok {
+				t.Fatal("expected Outage")
+			}
+			assertEqual(t, o.Action, "drop_to_zero")
+			assertEqual(t, r.Schedule.Duration, 8*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 0)
+		}},
+		// 16 — Daily Traffic Wave
+		{"Daily Traffic Wave", func(t *testing.T, r mutator.Rule) {
+			w, ok := r.Mutator.(mutator.Wave)
+			if !ok {
+				t.Fatal("expected Wave")
+			}
+			assertFloat(t, w.Amplitude, 500.0)
+			assertApprox(t, w.Frequency, 0.0000115741, 1e-10)
+			assertEqual(t, r.Schedule.Duration, 0)
+			assertEqual(t, r.Schedule.Interval, 0)
+		}},
+		// 17 — Intraday Latency Oscillation
+		{"Intraday Latency Oscillation", func(t *testing.T, r mutator.Rule) {
+			w, ok := r.Mutator.(mutator.Wave)
+			if !ok {
+				t.Fatal("expected Wave")
+			}
+			assertFloat(t, w.Amplitude, 0.05)
+			assertApprox(t, w.Frequency, 0.0000347222, 1e-10)
+			assertEqual(t, r.Schedule.InitialDelay, 5*time.Minute)
+		}},
+		// 18 — Periodic Scrape Noise
+		{"Periodic Scrape Noise", func(t *testing.T, r mutator.Rule) {
+			w, ok := r.Mutator.(mutator.Wave)
+			if !ok {
+				t.Fatal("expected Wave")
+			}
+			assertFloat(t, w.Amplitude, 0.1)
+			assertApprox(t, w.Frequency, 0.00166667, 1e-8)
+			assertEqual(t, r.Schedule.Duration, 10*time.Minute)
+			assertEqual(t, r.Schedule.Interval, 1*time.Hour)
+		}},
+		// 19 — Weekly Batch Volume Pattern
+		{"Weekly Batch Volume Pattern", func(t *testing.T, r mutator.Rule) {
+			w, ok := r.Mutator.(mutator.Wave)
+			if !ok {
+				t.Fatal("expected Wave")
+			}
+			assertFloat(t, w.Amplitude, 200.0)
+			assertApprox(t, w.Frequency, 0.00000165, 1e-10)
+			assertEqual(t, r.Schedule.Duration, 0)
+			assertEqual(t, r.Schedule.Interval, 0)
+		}},
+	}
+
+	for i, a := range assertions {
+		i, a := i, a
+		t.Run(a.name, func(t *testing.T) {
+			t.Parallel()
+			a.checkFn(t, rules[i])
 		})
 	}
 }

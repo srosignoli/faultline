@@ -17,13 +17,13 @@ type ScheduleConfig struct {
 
 // RuleState holds per-rule scheduling state that persists across scrapes.
 // StartTime is immutable after creation and safe to read without the lock.
-// ActiveSince, ActiveUntil, and NextTriggerTime are protected by mu.
+// CurrentWindowStart, ActiveUntil, and NextTriggerTime are protected by mu.
 type RuleState struct {
-	mu              sync.Mutex
-	StartTime       time.Time
-	ActiveSince     time.Time
-	ActiveUntil     time.Time
-	NextTriggerTime time.Time
+	mu                 sync.Mutex
+	StartTime          time.Time
+	CurrentWindowStart time.Time
+	ActiveUntil        time.Time
+	NextTriggerTime    time.Time
 }
 
 // NewRuleState creates a RuleState with the given start time.
@@ -50,7 +50,7 @@ func (rs *RuleState) IsActive(sched ScheduleConfig, now time.Time) bool {
 	}
 
 	if rs.NextTriggerTime.IsZero() || !now.Before(rs.NextTriggerTime) {
-		rs.ActiveSince = now
+		rs.CurrentWindowStart = now
 		rs.ActiveUntil = now.Add(sched.Duration)
 		jitter := time.Duration(0)
 		if sched.IntervalJitter > 0 {
@@ -63,9 +63,9 @@ func (rs *RuleState) IsActive(sched ScheduleConfig, now time.Time) bool {
 	return false
 }
 
-// GetActiveSince safely returns ActiveSince under the lock.
-func (rs *RuleState) GetActiveSince() time.Time {
+// GetCurrentWindowStart safely returns CurrentWindowStart under the lock.
+func (rs *RuleState) GetCurrentWindowStart() time.Time {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	return rs.ActiveSince
+	return rs.CurrentWindowStart
 }

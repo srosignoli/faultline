@@ -94,10 +94,10 @@ func TestTrend(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tr := mutator.Trend{RatePerSecond: tc.rate}
+			tr := mutator.Trend{Slope: tc.rate}
 			now := time.Unix(1_000_000, 0)
 			state := mutator.NewRuleState(now.Add(-time.Hour))
-			state.ActiveSince = now.Add(-tc.elapsed)
+			state.CurrentWindowStart = now.Add(-tc.elapsed)
 			sched := mutator.ScheduleConfig{} // Duration==0 = always active
 			got := tr.Apply(tc.base, state, sched, now)
 			assertFloat(t, got, tc.want, tc.name)
@@ -169,6 +169,58 @@ func TestWave(t *testing.T) {
 			assertApprox(t, got, tc.want, tc.tol+1e-10, tc.name)
 		})
 	}
+}
+
+// ---- Wave inactive ---------------------------------------------------------
+
+func TestWaveInactive(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_000_000, 0)
+	w := mutator.Wave{Amplitude: 20.0, Frequency: 1.0}
+	sched := mutator.ScheduleConfig{Duration: 5 * time.Second}
+	state := mutator.NewRuleState(now.Add(-time.Hour))
+	// Window expired, next trigger in future → inactive
+	state.ActiveUntil = now.Add(-time.Second)
+	state.NextTriggerTime = now.Add(time.Hour)
+	got := w.Apply(100.0, state, sched, now)
+	assertFloat(t, got, 100.0, "wave inactive")
+}
+
+// ---- Outage ----------------------------------------------------------------
+
+func TestOutage(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1_000_000, 0)
+
+	t.Run("drop_to_zero active", func(t *testing.T) {
+		t.Parallel()
+		o := mutator.Outage{Action: "drop_to_zero"}
+		state := mutator.NewRuleState(now.Add(-time.Hour))
+		state.ActiveUntil = now.Add(time.Hour)
+		sched := mutator.ScheduleConfig{Duration: 5 * time.Minute}
+		got := o.Apply(999.0, state, sched, now)
+		assertFloat(t, got, 0.0, "drop_to_zero active")
+	})
+
+	t.Run("unknown action active", func(t *testing.T) {
+		t.Parallel()
+		o := mutator.Outage{Action: "noop"}
+		state, sched := alwaysActive(now)
+		got := o.Apply(42.0, state, sched, now)
+		assertFloat(t, got, 42.0, "unknown action")
+	})
+
+	t.Run("drop_to_zero inactive", func(t *testing.T) {
+		t.Parallel()
+		o := mutator.Outage{Action: "drop_to_zero"}
+		state := mutator.NewRuleState(now.Add(-time.Hour))
+		state.ActiveUntil = now.Add(-time.Second)
+		state.NextTriggerTime = now.Add(time.Hour)
+		sched := mutator.ScheduleConfig{Duration: 5 * time.Minute}
+		got := o.Apply(50.0, state, sched, now)
+		assertFloat(t, got, 50.0, "drop_to_zero inactive")
+	})
 }
 
 // ---- Rule ------------------------------------------------------------------
