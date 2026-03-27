@@ -53,7 +53,16 @@ export const syntheticPatterns: SyntheticPattern[] = [
     metricDump:
       "# HELP process_resident_memory_bytes Resident memory size in bytes\n# TYPE process_resident_memory_bytes gauge\nprocess_resident_memory_bytes 104857600",
     mutationRule:
-      "rules:\n  - name: memory-leak\n    match:\n      metric_name: process_resident_memory_bytes\n    mutator:\n      type: trend\n      params:\n        rate_per_second: 51200",
+      "rules:\n  - name: memory-leak\n    match:\n      metric_name: process_resident_memory_bytes\n    mutator:\n      type: trend\n      params:\n        slope: 51200",
+  },
+  {
+    id: "trend-memory-leak-periodic",
+    group: "Trends (Gradual Degradation)",
+    name: "Memory Leak with Periodic Recovery",
+    metricDump:
+      "# HELP process_resident_memory_bytes Resident memory size in bytes\n# TYPE process_resident_memory_bytes gauge\nprocess_resident_memory_bytes 104857600",
+    mutationRule:
+      "rules:\n  - name: memory-leak-periodic\n    match:\n      metric_name: process_resident_memory_bytes\n    mutator:\n      type: trend\n      params:\n        slope: 51200\n        duration: 5m\n        interval: 55m",
   },
   {
     id: "trend-disk-fill",
@@ -62,7 +71,7 @@ export const syntheticPatterns: SyntheticPattern[] = [
     metricDump:
       "# HELP node_filesystem_avail_bytes Filesystem available bytes\n# TYPE node_filesystem_avail_bytes gauge\nnode_filesystem_avail_bytes{device=\"/dev/sda1\",mountpoint=\"/\"} 10737418240",
     mutationRule:
-      "rules:\n  - name: disk-fill\n    match:\n      metric_name: node_filesystem_avail_bytes\n    mutator:\n      type: trend\n      params:\n        rate_per_second: -1048576",
+      "rules:\n  - name: disk-fill\n    match:\n      metric_name: node_filesystem_avail_bytes\n    mutator:\n      type: trend\n      params:\n        slope: -1048576",
   },
   {
     id: "trend-connection-pool",
@@ -71,7 +80,7 @@ export const syntheticPatterns: SyntheticPattern[] = [
     metricDump:
       "# HELP db_connections_active Active database connections\n# TYPE db_connections_active gauge\ndb_connections_active 5\n# HELP db_connections_max Maximum database connections\n# TYPE db_connections_max gauge\ndb_connections_max 100",
     mutationRule:
-      "rules:\n  - name: conn-pool-trend\n    match:\n      metric_name: db_connections_active\n    mutator:\n      type: trend\n      params:\n        rate_per_second: 0.5",
+      "rules:\n  - name: conn-pool-trend\n    match:\n      metric_name: db_connections_active\n    mutator:\n      type: trend\n      params:\n        slope: 0.5",
   },
   {
     id: "trend-error-rate",
@@ -80,7 +89,7 @@ export const syntheticPatterns: SyntheticPattern[] = [
     metricDump:
       "# HELP http_requests_total Total HTTP requests\n# TYPE http_requests_total counter\nhttp_requests_total{status=\"200\"} 50000\nhttp_requests_total{status=\"500\"} 100",
     mutationRule:
-      "rules:\n  - name: rising-errors\n    match:\n      metric_name: http_requests_total\n      labels:\n        status: \"500\"\n    mutator:\n      type: trend\n      params:\n        rate_per_second: 2",
+      "rules:\n  - name: rising-errors\n    match:\n      metric_name: http_requests_total\n      labels:\n        status: \"500\"\n    mutator:\n      type: trend\n      params:\n        slope: 2",
   },
 
   // ── Jitter ───────────────────────────────────────────────────────────────

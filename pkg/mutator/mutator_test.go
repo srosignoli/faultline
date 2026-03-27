@@ -103,6 +103,20 @@ func TestTrend(t *testing.T) {
 			assertFloat(t, got, tc.want, tc.name)
 		})
 	}
+
+	// Regression: always-active Trend must use StartTime as the default window
+	// start, not the zero time. Without the fix, elapsed would be ~63 billion
+	// seconds (year 0001 → now), making the metric look flat in Prometheus.
+	t.Run("default window start is StartTime", func(t *testing.T) {
+		t.Parallel()
+		tr := mutator.Trend{Slope: 10.0}
+		now := time.Unix(1_000_000, 0)
+		// StartTime = now - 5s; CurrentWindowStart intentionally NOT overridden.
+		state := mutator.NewRuleState(now.Add(-5 * time.Second))
+		sched := mutator.ScheduleConfig{} // Duration==0 = always active
+		got := tr.Apply(100.0, state, sched, now)
+		assertFloat(t, got, 150.0, "default window start is StartTime")
+	})
 }
 
 // ---- Spike -----------------------------------------------------------------

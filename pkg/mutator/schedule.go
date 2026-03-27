@@ -27,8 +27,13 @@ type RuleState struct {
 }
 
 // NewRuleState creates a RuleState with the given start time.
+// CurrentWindowStart is initialized to startTime so that always-active rules
+// (Duration==0) measure elapsed from simulator start rather than the zero time.
 func NewRuleState(startTime time.Time) *RuleState {
-	return &RuleState{StartTime: startTime}
+	return &RuleState{
+		StartTime:          startTime,
+		CurrentWindowStart: startTime,
+	}
 }
 
 // IsActive reports whether the rule should fire at now.
