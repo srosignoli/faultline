@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { syntheticPatterns } from "../data/syntheticPatterns";
 
 interface Props {
   onSubmit: (name: string, dump: string, rules: string) => Promise<void>;
@@ -8,6 +9,7 @@ export default function CreateForm({ onSubmit }: Props) {
   const [name, setName] = useState("");
   const [dump, setDump] = useState("");
   const [rules, setRules] = useState("");
+  const [selectedPattern, setSelectedPattern] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -18,10 +20,13 @@ export default function CreateForm({ onSubmit }: Props) {
       setName("");
       setDump("");
       setRules("");
+      setSelectedPattern("");
     } finally {
       setLoading(false);
     }
   }
+
+  const groups = [...new Set(syntheticPatterns.map((p) => p.group))];
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -37,6 +42,36 @@ export default function CreateForm({ onSubmit }: Props) {
           className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           placeholder="my-simulator"
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Load a Synthetic Pattern...
+        </label>
+        <select
+          value={selectedPattern}
+          onChange={(e) => {
+            const id = e.target.value;
+            setSelectedPattern(id);
+            const p = syntheticPatterns.find((p) => p.id === id);
+            if (p) {
+              setDump(p.metricDump);
+              setRules(p.mutationRule);
+            }
+          }}
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="" disabled>Select a pattern...</option>
+          {groups.map((group) => (
+            <optgroup key={group} label={group}>
+              {syntheticPatterns
+                .filter((p) => p.group === group)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
       </div>
 
       <div>
