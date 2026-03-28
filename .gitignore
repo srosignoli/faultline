@@ -1,0 +1,28 @@
+# Build artifacts
+/bin/
+/controller
+/simulator
+*.exe
+*.test
+
+# Claude Code local config (user-specific, not for version control)
+.claude/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Go test artifacts
+*.out
+coverage.html
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
